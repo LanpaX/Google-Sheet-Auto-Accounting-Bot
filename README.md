@@ -1,5 +1,5 @@
 # Google-Sheet-Auto-Accounting-Bot
-全自動記帳系統：Gmail 抓信 + Google Sheet 戰情室分析
+全自動記帳系統：Gmail 抓信 + Google Sheet 支出分析
 # 💰 全自動記帳系統 (Google Apps Script)
 
 這是一個基於 Google Apps Script 的自動化記帳工具。它能自動監控 Gmail 中的銀行消費通知，將資料解析並寫入 Google Sheet，並自動生成視覺化的年度戰情室與互動式明細查詢面板。

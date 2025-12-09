@@ -47,17 +47,21 @@ var CONFIG = {
 };
 
 // ==========================================
-// 🔘 選單區
+// 🔘 選單區 (v6.0 - 整合自動安裝)
 // ==========================================
 function onOpen() {
+  // 1. 建立選單 (不變)
   SpreadsheetApp.getUi()
       .createMenu('💰 記帳小幫手')
-      .addItem('🔍 建立/重設「明細查詢面板」', 'createDetailSearchSheet') // <--- 新增這個
+      .addItem('🔍 建立/重設「明細查詢面板」', 'createDetailSearchSheet') 
       .addSeparator()
       .addItem('📩 立即執行抓信 (正式)', 'processConsolidatedEmails')
       .addItem('🧪 測試：回溯跑 2025 整年信件', 'testAll2025Emails')
       .addItem('🔄 強制更新所有報表', 'forceUpdateAllStats')
       .addToUi();
+
+  // 2. 呼叫自動設定觸發器功能
+  createInitialTriggers(); 
 }
 
 // ==========================================
@@ -399,4 +403,24 @@ function createDetailSearchSheet() {
   } catch (e) {
     SpreadsheetApp.getUi().alert("❌ 建立失敗：\n" + e.toString());
   }
+}
+// ==========================================
+// 🤖 首次執行：自動設定觸發器
+// ==========================================
+function createInitialTriggers() {
+  // 使用 PropertiesService 檢查是否已經設定過觸發器
+  var userProperties = PropertiesService.getUserProperties();
+  if (userProperties.getProperty('initial_trigger_set')) return;
+  
+  // 1. 設定每小時執行抓信的觸發器 (processConsolidatedEmails)
+  ScriptApp.newTrigger('processConsolidatedEmails')
+      .timeBased()
+      .everyHours(1)
+      .create();
+
+  // 2. 標記觸發器已設置，確保只執行一次
+  userProperties.setProperty('initial_trigger_set', true);
+  
+  // 3. 提示用戶
+  SpreadsheetApp.getActive().toast("✨ 自動抓信已設定完畢！", "初始化完成", 5);
 }

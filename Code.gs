@@ -92,13 +92,13 @@ function testAll2025Emails() {
 }
 
 // ==========================================
-// ⚙️ 批次處理核心 (改寫為整批插入)
+// ⚙️ 批次處理核心 (v6.4：美化修復 + 自動排序版)
 // ==========================================
 function processThreadsBatch(threads, isTestMode) {
-  var allDataByYear = {}; // 用來分類存放資料： { "2025": [[Row1], [Row2]], "2024": [...] }
+  var allDataByYear = {}; 
   var totalCount = 0;
   
-  // 1. 收集資料 (先不寫入)
+  // 1. 收集資料
   for (var t = 0; t < threads.length; t++) {
     var message = threads[t].getMessages().pop();
     var cleanBody = message.getBody().replace(/(\r\n|\n|\r)/gm, "");
@@ -132,11 +132,11 @@ function processThreadsBatch(threads, isTestMode) {
              var txDate = new Date(pendingDate);
              var txYear = txDate.getFullYear().toString();
              var category = determineCategory(merchant);
-             var sourceLabel = isTestMode ? '🧪 測試執行' : '';
+             var sourceLabel = isTestMode ? '🧪 測試執行' : ''; // 信件來源不顯示 iOS，留空或標示測試
              
              if (!allDataByYear[txYear]) allDataByYear[txYear] = [];
              
-             // 收集資料列：[日期, 金額, 內容, 分類, 來源]
+             // 收集資料列
              allDataByYear[txYear].push([pendingDate, amount, merchant, category, sourceLabel]);
              
              totalCount++;
@@ -149,23 +149,37 @@ function processThreadsBatch(threads, isTestMode) {
     if (!isTestMode && hasDataInThisThread) message.markRead();
   }
   
-// 2. 寫入資料 (使用 insertRowsAfter(1) 達到倒序效果)
+  // 2. 寫入資料 & 格式美化
   for (var year in allDataByYear) {
     var sheet = getOrCreateSheet(year);
     var newRows = allDataByYear[year];
     
     if (newRows.length > 0) {
-      // 在第 1 列之後 (即標題下方) 插入空白列
+      // 插入空白列
       sheet.insertRowsAfter(1, newRows.length);
       
-      // 寫入資料
-      sheet.getRange(2, 1, newRows.length, 5).setValues(newRows);
+      // 鎖定範圍
+      var newRange = sheet.getRange(2, 1, newRows.length, 5);
       
-      // 🎨 新增這行：選取剛寫入的 B 欄(金額)，設定格式為 "三位一撇" (#,##0)
-      sheet.getRange(2, 2, newRows.length, 1).setNumberFormat("#,##0");
+      // ✍️ 寫入資料
+      newRange.setValues(newRows);
       
-      Logger.log("✅ [" + year + "] 已插入 " + newRows.length + " 筆新資料到最上方");
-      updateMatrixStats(year); // 更新報表
+      // 🧹 格式修復 (去除繼承自標題的綠色與粗體)
+      newRange.setBackground(null);     // 背景變白
+      newRange.setFontWeight("normal"); // 字體變細
+      newRange.setFontColor("black");   // 字體變黑
+      
+      // 💰 設定金額格式 (NT$ #,##0)
+      sheet.getRange(2, 2, newRows.length, 1).setNumberFormat("NT$#,##0");
+      
+      // 🔥 自動排序 (由新到舊)
+      var lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).sort({column: 1, ascending: false});
+      }
+      
+      Logger.log("✅ [" + year + "] 已插入 " + newRows.length + " 筆新資料並完成美化");
+      updateMatrixStats(year); 
     }
   }
   
@@ -257,27 +271,67 @@ function updateMatrixStats(targetYear) {
   statsSheet.setFrozenColumns(1);
 }
 
-// 📱 iOS API (也改成插入到最上面)
+// ==========================================
+// 📱 iOS API v6.3 (美化版：修正綠色背景 + 貨幣符號)
+// ==========================================
 function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents);
+    var data = {};
+    try {
+      data = JSON.parse(e.postData.contents);
+    } catch (parseErr) {
+      return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "JSON 解析失敗"}));
+    }
+    
+    // 1. 準備資料
     var date = data.date ? new Date(data.date) : new Date();
     var year = date.getFullYear().toString();
     var dateStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy/MM/dd");
-    var amount = data.amount;
-    var merchant = data.type || "手動輸入";
     
-    var sheet = getOrCreateSheet(year);
-    var category = determineCategory(merchant);
+    var rawAmount = data.amount || 0; 
+    var amount = rawAmount.toString().replace(/[^0-9.]/g, "");
+    if (amount == "0") return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "金額為 0"}));
+    
+    var merchant = data.note || data.type || "手動輸入";
+    var category = determineCategory(data.type || merchant);
 
-    // 🆕 改成插入到第 2 行 (Row 2)
-    sheet.insertRowsAfter(1, 1);
-    sheet.getRange(2, 1, 1, 5).setValues([[dateStr, amount, merchant, category, '📱 iOS捷徑']]);
+    // 2. 寫入資料
+    var sheet = getOrCreateSheet(year);
     
+    // 插入在第 2 行 (標題下方)
+    sheet.insertRowsAfter(1, 1);
+    
+    // 鎖定剛剛新增的這一列 (第2列，從第1欄到第5欄)
+    var newRowRange = sheet.getRange(2, 1, 1, 5);
+    
+    // ✍️ 填入資料
+    newRowRange.setValues([[dateStr, amount, merchant, category, '📱 iOS捷徑']]);
+
+    // 🧹 格式修復 (關鍵步驟！)
+    // 強制把背景變成白色 (null = 預設)，字體變回正常 (非粗體)
+    newRowRange.setBackground(null);
+    newRowRange.setFontWeight("normal");
+    newRowRange.setFontColor("black"); 
+    
+    // 💰 金額格式修正
+    // 設定為 "NT$ 1,000" 這種格式
+    sheet.getRange(2, 2).setNumberFormat("NT$#,##0");
+    
+    // 3. 排序與更新報表
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).sort({column: 1, ascending: false});
+    }
     updateMatrixStats(year);
-    return ContentService.createTextOutput(JSON.stringify({status: "success", year: year, cat: category}));
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "success", 
+      msg: "已記錄: " + merchant + " " + amount,
+      category: category
+    }));
+    
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({status: "error", msg: err.toString()}));
+    return ContentService.createTextOutput(JSON.stringify({status: "error", msg: "錯誤: " + err.toString()}));
   }
 }
 
